@@ -22,12 +22,38 @@ typedef struct
 	char 	data[RUDP_MAXPKTSIZE];
 }__attribute__((packed)) rudp_packet_t;
 
+/* Structure for outgoing packet buffer */
+struct send_data_buffer
+{
+	rudp_packet_t rudp;			// data to be sent
+	struct send_data_buffer * next_buff;	// pointer to the next buffer area
+};
+
+/* Structure for list of peers to send data to */
+struct rudp_send_peer
+{
+	int status;					// 1:initial, 2:SYN sent, 3:sending DATA, 4:FIN sent
+	struct send_data_buffer window[RUDP_WINDOW]	// window buffer
+	struct send_data_buffer *queue_buf;		// queue buffer (wait for window to be empty)
+	int seq;					// sequence number
+	struct rudp_send_peer *next_send_peer;
+};
+
+/* Structure for list of peers to receive data from */
+struct rudp_recv_peer
+{
+	int status;		// 1:initial, 2:SYN sent, 3:sending DATA, 4:FIN sent
+	int seq;		// sequence number
+	struct rudp_recv_peer *next_recv_peer;
+};
 
 struct rudp_socket_type
 {
 	int rsocket_fd;
 	int port;
-	struct sockaddr_in	rsock_addr;		// the socket address of the destination(to/from)
+	struct rudp_send_peer *send_peer;	// list of peers to send data to
+	struct rudp_recv_peer *recv_peer;	// list of peers to receive data from
+	struct sockaddr_in	rsock_addr;	// the socket address of the destination(to/from)
 	int (*recvfrom_handler_callback)(rudp_socket_t, struct sockaddr_in *, char *, int);
 	int (*event_handler_callback)(rudp_socket_t, rudp_event_t, struct sockaddr_in *);
 	struct rudp_socket_type *next_node;
@@ -40,12 +66,15 @@ rudp_socket_node *rudp_list_head = NULL;
 /*===============================================================================
  * Funtion prototypes
  *==============================================================================*/
-struct rudp_socket_type *rdup_create_socket(int fd, int port, struct sockaddr_in addr);
+struct rudp_socket_type *rdup_add_socket(int fd, int port, struct sockaddr_in addr);
 int rudp_receive_data(int fd, void *arg);
 int rudp_process_received_packet(void *buf, rudp_socket_node *rsocket, int len);
 
 
-struct rudp_socket_type *rdup_create_socket(int fd, int port, struct sockaddr_in addr)
+/*==================================================================
+ * Creating RUDP socket
+ *==================================================================*/
+struct rudp_socket_type *rdup_add_socket(int fd, int port, struct sockaddr_in addr)
 {
 	rudp_socket_node *node = NULL;
 
@@ -146,18 +175,17 @@ int rudp_process_received_packet(void *buf, rudp_socket_node *rsocket, int len)
 // timeout event callbacck function
  
 
-/*==================================================================*/
-/* 
+/*==================================================================
+ * 
  * rudp_socket: Create a RUDP socket. 
  * May use a random port by setting port to zero. 
- */
-
+ *
+ *==================================================================*/
 rudp_socket_t rudp_socket(int port) 
 {
 	rudp_socket_node *rudp_socket = NULL;
 	int sockfd = -1;
 	struct sockaddr_in in;	
-	int ret = 0;
 	
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if(sockfd < 0)
@@ -180,32 +208,33 @@ rudp_socket_t rudp_socket(int port)
 	}
 
 	// create rudp_socket
-	rudp_socket = rdup_create_socket(sockfd, port, in);
+	rudp_socket = rdup_add_socket(sockfd, port, in);
 	if(rudp_socket == NULL)
 	{
 		fprintf(stderr, "rudp: create_rudp_socket failed.\n");
 		return NULL;
 	}
 
-	// Registeration a function for receiving socket data from Network
-	ret = event_fd((int)sockfd, rudp_receive_data, 
-					(void*)rudp_socket, "rudp_receive_data");
 					
 	return (rudp_socket_t*)rudp_socket;
 }
 
-/* 
- *rudp_close: Close socket 
- */ 
 
+/*==================================================================
+ * 
+ *rudp_close: Close socket 
+ * 
+ *==================================================================*/
 int rudp_close(rudp_socket_t rsocket) {
 	return 0;
 }
 
-/* 
- *rudp_recvfrom_handler: Register receive callback function 
- */ 
 
+/*==================================================================
+ * 
+ *rudp_recvfrom_handler: Register receive callback function 
+ * 
+ *==================================================================*/
 int rudp_recvfrom_handler(rudp_socket_t rsocket, 
 			  int (*handler)(rudp_socket_t, struct sockaddr_in *, 
 					 char *, int)) 
@@ -219,9 +248,12 @@ int rudp_recvfrom_handler(rudp_socket_t rsocket,
 	return 0;
 }
 
-/* 
+
+/*==================================================================
+ * 
  *rudp_event_handler: Register event handler callback function 
- */ 
+ * 
+ *==================================================================*/
 int rudp_event_handler(rudp_socket_t rsocket, 
 		       int (*handler)(rudp_socket_t, rudp_event_t, 
 				      struct sockaddr_in *)) 
@@ -236,11 +268,13 @@ int rudp_event_handler(rudp_socket_t rsocket,
 }
 
 
-/* 
+/*==================================================================
+ * 
  * rudp_sendto: Send a block of data to the receiver. 
- */
-
+ * 
+ *==================================================================*/
 int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* to) {
+
 	return 0;
 }
 
