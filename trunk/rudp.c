@@ -31,12 +31,21 @@ struct send_data_buffer
 	struct send_data_buffer * next_buff;	// pointer to the next buffer area
 };
 
+/* Structure for send window */
+struct send_data_window
+{
+	int send_flag;				// 1: packet sent, 0: not yet sent
+	rudp_packet_t *rudp_packet;		// data to be sent
+	int len;
+	struct send_data_window *next_buff;	// pointer to the next buffer area
+};
+
 /* Structure for list of peers to send data to */
 struct rudp_send_peer
 {
 	struct rudp_socket_type *rudp_node;	// list of peer nodes
 	int status;				// 1:initial, 2:SYN sent, 3:sending DATA, 4:FIN sent
-	struct send_data_buffer *window;	// window buffer
+	struct send_data_window *window;	// window buffer
 	struct send_data_buffer *queue_buf;	// queue buffer (wait for window to be empty)
 	int seq;				// sequence number
 	struct rudp_send_peer *next_send_peer;
@@ -70,7 +79,7 @@ rudp_socket_node *rudp_list_head = NULL;
 struct rudp_send_peer *send_peer_head = NULL;
 
 /*===============================================================================
- * Funtion prototypes
+ * Function prototypes
  *==============================================================================*/
 struct rudp_socket_type *rdup_add_socket(int fd, int port, struct sockaddr_in addr);
 int rudp_receive_data(int fd, void *arg);
@@ -130,7 +139,7 @@ void rdup_add_send(struct rudp_socket_type *rsocket)
 }
 
 /*==================================================================
- * Add RUDP packet to the buffer (window / send buffer)
+ * Add RUDP packet to the buffer
  *==================================================================*/
 void rudp_add_packet(struct send_data_buffer **head, struct send_data_buffer *packet)
 {
@@ -156,6 +165,47 @@ void rudp_add_packet(struct send_data_buffer **head, struct send_data_buffer *pa
 	{
 		*head = current;
 	}
+}
+
+/*==================================================================
+ * Add RUDP packet to the send window
+ *==================================================================*/
+void rudp_add_window(struct send_data_window **window_head, struct send_data_buffer *buffer)
+{
+	struct send_data_window *current, *prev;
+
+	current = *window_head;
+	prev = current;
+
+	while(current != NULL)
+	{
+		prev = current;
+		current = current->next_buff;
+	}
+
+	current = (struct send_data_window *)malloc(sizeof(struct send_data_window));
+
+	current->send_flag = 0;
+	current->rudp_packet = &buffer->rudp_packet;
+	current->len = buffer->len;
+	current->next_buff = NULL;
+	if(prev != NULL)
+	{
+		prev->next_buff = current;
+	}
+	else
+	{
+		*window_head = current;
+	}
+/*
+struct send_data_buffer
+{
+	int send_flag;				// 1: packet sent, 0: not yet sent
+	rudp_packet_t rudp_packet;		// data to be sent
+	struct send_data_buffer * next_buff;	// pointer to the next buffer area
+
+};
+*/
 }
 /*==================================================================
  * Finding RUDP socket in the send peer list
@@ -449,7 +499,7 @@ int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* 
 		if(rsock != NULL)
 		{
 			printf("Debug: Adding the peer to the send list.\n");
-			rdup_add_send(rsock);
+			rdup_add_send(rsock, to);
 
 			// add the data to the send peer buffer: SYN
 			packet_buff = set_rudp_packet(RUDP_SYN, (rand() % 0xFFFFFFFF + 1), NULL, 0); 
@@ -482,9 +532,9 @@ int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* 
 int transmit(struct rudp_send_peer *send_peer, int seqno)
 {
 	int wcnt;				// counter of window occupancy
-	struct send_data_buffer *window;	// pointer to the send window
+	struct send_data_window *window;	// pointer to the send window
 	struct send_data_buffer *queue;		// pointer to the send queue
-	int cnt;				// dummy counter
+	int cnt, length;				// dummy variables
 	int socket;				// socket file descriptor
 	struct sockaddr_in rsock_addr;		// socket address
 	struct timeval timer, t0, t1;		// timer variables
@@ -493,21 +543,23 @@ int transmit(struct rudp_send_peer *send_peer, int seqno)
 	queue = send_peer->queue_buf;
 	window = send_peer->window;
 	wcnt = 0;
-	while(window->next_buff != NULL)
+	while(window != NULL)
 	{
 		wcnt++;
 		window = window->next_buff;
 	}
 
 	// if less than RUDP_WINDOW, copy data from queue buffer to fill in the window
-	window = send_peer->window;
 	if(wcnt < RUDP_WINDOW)
 	{
 		printf("Data in window: %d\n", wcnt);
-		for(cnt=0; cnt<wcnt; cnt++)
+		for(cnt=0; cnt<(RUDP_WINDOW-wcnt); cnt++)
 		{
-			rudp_add_packet(window, queue);
+			rudp_add_window(&send_peer->window, queue);
 			queue = queue->next_buff;
+			send_peer->queue_buf = queue;
+			if(queue == NULL)	// no more data
+				break;
 		}
 	}
 
@@ -515,14 +567,15 @@ int transmit(struct rudp_send_peer *send_peer, int seqno)
 	window = send_peer->window;
 	socket = send_peer->rudp_node->rsocket_fd;
 	rsock_addr = send_peer->rudp_node->rsock_addr;
+	length = sizeof(window->rudp_packet->header) + window->len;
 	for(cnt=0; cnt<RUDP_WINDOW; cnt++)
 	{
 		// untransmitted window
 		if(window->send_flag == 0)
 		{
-			if(sendto(socket, window, window->len, 0, (struct sockaddr *)&rsock_addr, sizeof(rsock_addr)) <= 0)
+			if(sendto(socket, window->rudp_packet, length, 0, (struct sockaddr *)&rsock_addr, sizeof(rsock_addr)) <= 0)
 			{
-				perror("Error in send_to");
+				perror("Error in send_to: ");
 				return -1;
 			}
 			window->send_flag = 1;	// set to sent data
@@ -567,6 +620,7 @@ struct rudp_socket_type
 	struct rudp_socket_type *next_node;
 };
 struct send_data_buffer
+
 {
 	int send_flag;				// 1: packet sent, 0: not yet sent
 	rudp_packet_t rudp_packet;		// data to be sent
