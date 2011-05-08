@@ -32,6 +32,7 @@ struct send_data_buffer
         int send_flag;                          // 1: packet sent, 0: not yet sent
         rudp_packet_t rudp_packet;              // data to be sent
         int len;				// data length
+        int transcnt;			// transmission counter
         struct send_data_buffer *next_buff;	// pointer to the next buffer area
 };
 
@@ -47,21 +48,21 @@ struct send_data_window
 /* Structure for list of peers to send data to */
 struct rudp_send_peer
 {
-        int status;                             // 1:initial, 2:sending DATA, 3:closing socket
+	int status;                             // 1:initial, 2:sending DATA, 3:closing socket
 	struct sockaddr_in rsock_addr;		// the socket address of the destination
-        int seq;                                // sequence number
+	int seq;                                // sequence number
 	struct send_data_buffer *queue_buff;	// outgoing data buffer
-        struct send_data_window *window;        // window buffer
-        struct rudp_send_peer *next_peer;
+	struct send_data_window *window;        // window buffer
+	struct rudp_send_peer *next_peer;
 };
 
 /* Structure for list of peers to receive data from */
 struct rudp_recv_peer
 {
-        int status;             	// 
+	int status;             	//
 	struct sockaddr_in rsock_addr;	// the socket address of the incoming peer
-        int seq;                	// sequence number
-        struct rudp_recv_peer *next_recv_peer;
+	int seq;                	// sequence number
+	struct rudp_recv_peer *next_recv_peer;
 };
 
 /* Structure for list of open sockets */
@@ -102,7 +103,7 @@ int rudp_send_ack_packet(rudp_socket_node *rsocket, struct sockaddr_in *from, in
 int transmit(struct rudp_send_peer *send_peer, int seqno);
 int rudp_send_data(rudp_socket_node *rsocket, struct sockaddr_in *from, int seq);
 void remove_send_peer(struct rudp_socket_type *rsock, struct rudp_send_peer *node);
-
+int retransmit(int fd, void *arg);
 
 /*==================================================================
  * Add RUDP socket to the node list
@@ -564,47 +565,43 @@ int rudp_send_ack_packet(rudp_socket_node *rsocket, struct sockaddr_in *to, int 
 	// Add receiving peers to a linked list
 	socket = find_rudp_socket(rsocket);
 	
-    new_recv_peer = (struct rudp_recv_peer*)malloc(sizeof(struct rudp_recv_peer));
-    if(new_recv_peer == NULL) 
-    {
+	new_recv_peer = (struct rudp_recv_peer*)malloc(sizeof(struct rudp_recv_peer));
+	if(new_recv_peer == NULL) 
+	{
 		fprintf(stderr, "rudp_send_ack_packet: Memory allocation failed.\n");		
 		return -1;
-    }
+	}
     
-    memset(new_recv_peer, 0x0, sizeof(struct rudp_recv_peer));
+	memset(new_recv_peer, 0x0, sizeof(struct rudp_recv_peer));
 
 	new_recv_peer->status = SENDING;
-    new_recv_peer->seq = seq_num;
-    new_recv_peer->next_recv_peer = NULL;
-    new_recv_peer->rsock_addr = *to;
+	new_recv_peer->seq = seq_num;
+	new_recv_peer->next_recv_peer = NULL;
+	new_recv_peer->rsock_addr = *to;
     
-    recv_peer = socket->incoming_peer;
+	recv_peer = socket->incoming_peer;
 
-    // Move to the end of the incoming peer list
-    while(recv_peer)
-    {
-    	printf("rudp_send_ack_packet: recv_peer:0x%x \n", recv_peer);
+	// Move to the end of the incoming peer list
+	while(recv_peer)
+	{
+		printf("rudp_send_ack_packet: recv_peer:0x%x \n", recv_peer);
 		prev_recv_peer = recv_peer;
 		recv_peer = recv_peer->next_recv_peer;		
-    }
+	}
     
-    if(prev_recv_peer == NULL) 
-    {
+	if(prev_recv_peer == NULL) 
+	{
 		printf("Add one recv_peer.\n");
 		socket->incoming_peer = new_recv_peer;
-    } 
-    else 
-    {
-	    printf("Add the peer to the end of the list\n");
+	} 
+	else 
+	{
+		printf("Add the peer to the end of the list\n");
 		prev_recv_peer->next_recv_peer = new_recv_peer;		
-    }
+	}
 
 	return 0;
 }
-/*===================================================================
- * 
- *===================================================================*/
-
 
 /*==================================================================
  * 
@@ -626,11 +623,11 @@ rudp_socket_t rudp_socket(int port)
 		return NULL;
 	}
 	
-    if(port == 0) 
-    {
+	if(port == 0) 
+	{
 		port = rand() % 120000 + 1024;
-    }
-    printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port);
+	}
+	printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port);
 
 	bzero(&in, sizeof(in));
 
@@ -646,7 +643,7 @@ rudp_socket_t rudp_socket(int port)
 	}
 
 	// create rudp_socket
-	rudp_socket = rudp_add_socket(sockfd, port, in);
+	rudp_socket = rdup_add_socket(sockfd, port, in);
 	if(rudp_socket == NULL)
 	{
 		fprintf(stderr, "rudp: create_rudp_socket failed.\n");
@@ -692,36 +689,29 @@ int rudp_close(rudp_socket_t rsocket)
 	recv_peer=rsock->incoming_peer;
 	
 	while (recv_peer != NULL)
-    {	
+	{	
 		prev_peer = recv_peer;
 		prev_peer->status = FINISHED;
 		prev_peer->next_recv_peer = NULL;
 		recv_peer = recv_peer->next_recv_peer; 
 	}
-	// check whether the socket is in the open socket list
-	
-	if(rsock != NULL) // if the socket is already open
-	{
-		send_peer = rsock->outgoing_peer;
-		while(send_peer != NULL)
-		{
-			send_peer->status = CLOSING;
 
-			// append FIN to the send buffer
-			seqno = send_peer->seq;
-			packet_buff = set_rudp_packet(RUDP_FIN, seqno+1, NULL, 0);
-			rudp_add_packet(&send_peer->queue_buff, packet_buff);
-			send_peer->seq = seqno+1;
-
-			send_peer = send_peer->next_peer;
-		}
-		return 0;
-	}
-	else
+	// sender side
+	send_peer = rsock->outgoing_peer;
+	while(send_peer != NULL)
 	{
-		printf("rudp: Error request to close unknown socket\n");
-		return -1;
+		send_peer->status = CLOSING;
+
+		// append FIN to the send buffer
+		seqno = send_peer->seq;
+		packet_buff = set_rudp_packet(RUDP_FIN, seqno+1, NULL, 0);
+		rudp_add_packet(&send_peer->queue_buff, packet_buff);
+		send_peer->seq = seqno+1;
+
+		send_peer = send_peer->next_peer;
 	}
+
+	return 0;
 }
 
 /*==================================================================
@@ -762,12 +752,12 @@ int rudp_event_handler(rudp_socket_t rsocket,
 
 /*==================================================================
  * 
- * rudp_sendto: Handle packet to be send to the receiver. 
+ * rudp_sendto: Handle packet to be sent to the receiver.
  * 
  *==================================================================*/
 int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* to) {
 
-	struct rudp_send_peer *send_peer, *prevpeer;	// pointer to send peers list
+	struct rudp_send_peer *send_peer;	// pointer to send peers list
 	struct rudp_socket_type *rsock;		// pointer to open socket list
 	struct send_data_buffer *packet_buff;	// pointer to packet buffer
 	unsigned int seqno;			// packet sequence number
@@ -895,9 +885,11 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 				perror("Error in send_to: ");
 				return -1;
 			}
-			printf("rudp: Packet sent to (%s:%d) via socket (%d) seq (%d).\n", inet_ntoa(rsock_addr.sin_addr), ntohs(rsock_addr.sin_port), socket, seq);
-			window->send_flag = 1;	// set to sent data
-			dumcnt++;  // increment packet counter
+			printf("rudp: Packet sent to (%s:%d) via socket (%d) seq (%d).\n", 
+							inet_ntoa(rsock_addr.sin_addr), ntohs(rsock_addr.sin_port), socket, seq);
+
+			window->send_flag = 1;	// set to status to sent
+			dumcnt++;  		// increment packet counter
 
 			// check whether the data is FIN
 			if(window->rudp_packet->header.type == RUDP_FIN)
@@ -914,7 +906,11 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 			timeradd(&t0, &timer, &t1);  //add the timeout time with thecurrent time of the day
 
 			// register timeout (to be implemented)
-
+			if(event_timeout(t1, &retransmit, window->rudp_packet, "timer_callback") == -1)
+			{
+			    	perror("Error registering event_timeout");
+			    	return -1;
+			}
 		}
 
 		window = window->next_buff;
@@ -923,6 +919,70 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 			printf("rudp: Number of packet sent: %d.\n", dumcnt);
 			break;
 		}
+	}
+
+	return 0;
+}
+
+
+/*==================================================================
+ *
+ * retransmit: Retransmit packet to the receiver.
+ *
+ *==================================================================*/
+int retransmit(int fd, void *arg)
+{
+	struct rudp_socket_type *rsock;		// pointer to open socket list
+	struct rudp_send_peer *send_peer;	// pointer to send peers list
+	struct send_data_buffer *packet_buff;	// pointer to packet buffer
+
+	rudp_packet_t *rudp_packet;		// pointer to RUDP packet
+	int sockfd;						// socket file descriptor
+	struct sockaddr_in rsock_addr;	// the address of the destination
+	int length;						// transmission data length
+
+	int found =0;
+
+	rudp_packet = (rudp_packet_t *)arg;
+
+	printf("rudp: retransmit packet");
+
+	// search for the packet owner (brute force method, lol..)
+	rsock = rudp_list_head;
+	while(rsock != NULL)
+	{
+		sockfd = rsock->rsocket_fd;
+		send_peer = rsock->outgoing_peer;
+
+		while(send_peer != NULL)
+		{
+			rsock_addr = send_peer->rsock_addr;
+			packet_buff = send_peer->queue_buff;
+
+			while(packet_buff != NULL)
+			{
+				if(rudp_packet == &(packet_buff->rudp_packet))
+				{
+					found = 1;
+					break;
+				}
+				packet_buff = packet_buff->next_buff;
+			}
+			if(found)
+				break;
+			send_peer = send_peer->next_peer;
+		}
+		if(found)
+			break;
+		rsock = rsock->next_node;
+	}
+
+	length = packet_buff->len + sizeof(rudp_packet->header);
+
+	if(sendto(sockfd, rudp_packet, length, 0, (struct sockaddr *)&rsock_addr, sizeof(rsock_addr)) <= 0)
+	{
+		perror("Error in send_to: ");
+		return -1;
 	}
 
 	return 0;
