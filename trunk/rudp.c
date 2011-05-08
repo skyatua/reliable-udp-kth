@@ -250,6 +250,7 @@ struct send_data_buffer *set_rudp_packet(int type, int seq, void *data, int len)
 	buffer->rudp_packet.header.version = RUDP_VERSION;
 	buffer->rudp_packet.header.type = type;
 	buffer->rudp_packet.header.seqno = seq;
+	buffer->transcnt = 0;
 
 	memcpy(buffer->rudp_packet.data, data, len);
 	buffer->len = len;
@@ -475,6 +476,12 @@ int rudp_send_data(rudp_socket_node *rsocket, struct sockaddr_in *from, int seq)
 		
 		if(send_peer != NULL)
 		{
+			// delete timeout register
+		    if(event_timeout_delete(retransmit, send_peer->window->rudp_packet) == -1)
+		    {
+		    	perror("rudp: Error deleting timeout..\n");
+				return -1;
+		    }
 			// check the sequence number, remove data with smaller sequence number from window
 			window = send_peer->window;
 			packet_buff = send_peer->queue_buff;
@@ -836,6 +843,11 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 	struct sockaddr_in rsock_addr;		// socket address
 	struct timeval timer, t0, t1;		// timer variables
 
+	// initialize timer variables
+	timer.tv_sec = timer.tv_usec = 0;
+	t0.tv_sec = t0.tv_usec = 0;
+	t1.tv_sec = t1.tv_usec = 0;
+
 	// check amount of packets in the window
 	queue = send_peer->queue_buff;
 	window = send_peer->window;
@@ -905,10 +917,10 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 			gettimeofday(&t0, NULL);     			// current time of the day
 			timeradd(&t0, &timer, &t1);  //add the timeout time with thecurrent time of the day
 
-			// register timeout (to be implemented)
+			// register timeout
 			if(event_timeout(t1, &retransmit, window->rudp_packet, "timer_callback") == -1)
 			{
-			    	perror("Error registering event_timeout");
+			    	perror("rudp: Error registering event_timeout\n");
 			    	return -1;
 			}
 		}
@@ -937,15 +949,19 @@ int retransmit(int fd, void *arg)
 	struct send_data_buffer *packet_buff;	// pointer to packet buffer
 
 	rudp_packet_t *rudp_packet;		// pointer to RUDP packet
-	int sockfd;						// socket file descriptor
-	struct sockaddr_in rsock_addr;	// the address of the destination
-	int length;						// transmission data length
+	int sockfd;				// socket file descriptor
+	struct sockaddr_in rsock_addr;		// the address of the destination
+	int length;				// transmission data length
+	struct timeval timer, t0, t1;		// timer variables
 
-	int found =0;
+	// initialize timer variables
+	timer.tv_sec = timer.tv_usec = 0;
+	t0.tv_sec = t0.tv_usec = 0;
+	t1.tv_sec = t1.tv_usec = 0;
+
+	int found = 0;
 
 	rudp_packet = (rudp_packet_t *)arg;
-
-	printf("rudp: retransmit packet");
 
 	// search for the packet owner (brute force method, lol..)
 	rsock = rudp_list_head;
@@ -977,13 +993,42 @@ int retransmit(int fd, void *arg)
 		rsock = rsock->next_node;
 	}
 
-	length = packet_buff->len + sizeof(rudp_packet->header);
-
-	if(sendto(sockfd, rudp_packet, length, 0, (struct sockaddr *)&rsock_addr, sizeof(rsock_addr)) <= 0)
+	if(found && packet_buff->transcnt < RUDP_MAXRETRANS)
 	{
-		perror("Error in send_to: ");
+		length = packet_buff->len + sizeof(rudp_packet->header);
+		packet_buff->transcnt++;
+
+		printf("rudp: retransmit packet seq=%d to %s:%d\n", 
+				rudp_packet->header.seqno, inet_ntoa(rsock_addr.sin_addr), ntohs(rsock_addr.sin_port));
+
+		if(sendto(sockfd, rudp_packet, length, 0, (struct sockaddr *)&rsock_addr, sizeof(rsock_addr)) <= 0)
+		{
+			perror("Error in send_to: ");
+			return -1;
+		}
+
+		// register timeout again
+		timer.tv_sec = RUDP_TIMEOUT/1000;           	// convert to second
+		timer.tv_usec = (RUDP_TIMEOUT%1000) * 1000; 	// convert to micro
+		gettimeofday(&t0, NULL);     			// current time of the day
+		timeradd(&t0, &timer, &t1);  //add the timeout time with thecurrent time of the day
+
+		if(event_timeout(t1, &retransmit, &packet_buff->rudp_packet, "timer_callback") == -1)
+		{
+		    	perror("rudp: Error registering event_timeout\n");
+		    	return -1;
+		}
+
+		return 0;
+	}
+	else if(!found)
+	{
+		printf("rudp: Could not find retransmission destination.\n");
 		return -1;
 	}
-
-	return 0;
+	else
+	{
+		printf("rudp: Retransmission count exceeded the limit %d times.\n", RUDP_MAXRETRANS);
+		return -1;
+	}
 }
