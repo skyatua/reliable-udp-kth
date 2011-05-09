@@ -95,8 +95,8 @@ bool rudp_fin_received = FALSE;
 /*===============================================================================
  * Funtion prototypes
  *==============================================================================*/
-struct rudp_socket_type *rdup_add_socket(int fd, int port, struct sockaddr_in addr);
-void rdup_add_send(struct rudp_socket_type *rsocket, struct sockaddr_in *to);
+struct rudp_socket_type *rudp_add_socket(int fd, int port, struct sockaddr_in addr);
+void rudp_add_send(struct rudp_socket_type *rsocket, struct sockaddr_in *to);
 int rudp_receive_data(int fd, void *arg);
 void rudp_process_received_packet(void *buf, rudp_socket_node *rsocket, int len);
 int rudp_send_ack_packet(rudp_socket_node *rsocket, struct sockaddr_in *from, int seq_num);
@@ -108,7 +108,7 @@ int retransmit(int fd, void *arg);
 /*==================================================================
  * Add RUDP socket to the node list
  *==================================================================*/
-struct rudp_socket_type *rdup_add_socket(int fd, int port, struct sockaddr_in addr)
+struct rudp_socket_type *rudp_add_socket(int fd, int port, struct sockaddr_in addr)
 {
 	rudp_socket_node *node = NULL;
 
@@ -135,7 +135,7 @@ struct rudp_socket_type *rdup_add_socket(int fd, int port, struct sockaddr_in ad
 /*==================================================================
  * Add a destination address to the send peer list
  *==================================================================*/
-void rdup_add_send(struct rudp_socket_type *rsocket, struct sockaddr_in *to)
+void rudp_add_send(struct rudp_socket_type *rsocket, struct sockaddr_in *to)
 {
 	struct rudp_send_peer *node = NULL;
 
@@ -598,12 +598,12 @@ int rudp_send_ack_packet(rudp_socket_node *rsocket, struct sockaddr_in *to, int 
     
 	if(prev_recv_peer == NULL) 
 	{
-		printf("Add one recv_peer.\n");
+		printf("rudp_send_ack_packet: Add one recv_peer.\n");
 		socket->incoming_peer = new_recv_peer;
-	} 
-	else 
-	{
-		printf("Add the peer to the end of the list\n");
+    } 
+    else 
+    {
+	    printf("rudp_send_ack_packet: Add one recv_peer at the end of the list.\n");
 		prev_recv_peer->next_recv_peer = new_recv_peer;		
 	}
 
@@ -622,25 +622,22 @@ rudp_socket_t rudp_socket(int port)
 	int sockfd = -1;
 	struct sockaddr_in in;	
 	int ret = 0;
-	
+	int port_num=0;
+
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if(sockfd < 0)
 	{
 		fprintf(stderr, "rudp: socket error : ");
 		return NULL;
 	}
-	
-	if(port == 0) 
-	{
-		port = rand() % 120000 + 1024;
-	}
-	printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port);
+	port_num = port;
+    printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port_num);
 
 	bzero(&in, sizeof(in));
 
 	in.sin_family = AF_INET;
 	in.sin_addr.s_addr = htonl(INADDR_ANY);
-	in.sin_port = htons(port);
+	in.sin_port = htons(port_num);
 
 
 	if(bind(sockfd, (struct sockaddr *)&in, sizeof(in)) == -1)
@@ -650,7 +647,7 @@ rudp_socket_t rudp_socket(int port)
 	}
 
 	// create rudp_socket
-	rudp_socket = rdup_add_socket(sockfd, port, in);
+	rudp_socket = rudp_add_socket(sockfd, port_num, in);
 	if(rudp_socket == NULL)
 	{
 		fprintf(stderr, "rudp: create_rudp_socket failed.\n");
@@ -697,8 +694,9 @@ int rudp_close(rudp_socket_t rsocket)
 	
 	while (recv_peer != NULL)
 	{	
+    	printf("rudp_close: Delete recv_peer(status=%d)\n", recv_peer->status);
 		prev_peer = recv_peer;
-		prev_peer->status = FINISHED;
+		prev_peer->status = CLOSING;
 		prev_peer->next_recv_peer = NULL;
 		recv_peer = recv_peer->next_recv_peer; 
 	}
