@@ -796,7 +796,7 @@ int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* 
 		}
 
 		// if the destination address is not in the list add it to send peer list 
-		rdup_add_send(rsock, to);
+		rudp_add_send(rsock, to);
 		send_peer = rsock->outgoing_peer;
 
 		// set up random sequence number
