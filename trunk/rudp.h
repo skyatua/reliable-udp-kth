@@ -12,7 +12,7 @@
 #define RUDP_DATA	1
 #define RUDP_ACK	2
 #define RUDP_SYN	4
-#define RUDP_FIN		5
+#define RUDP_FIN	5
 
 /* Outgoing peer status */
 #define INITIAL 1
@@ -20,6 +20,8 @@
 #define CLOSING 3
 #define FINISHED 4
 
+/* Drop debugging purpose macro */
+#define DROP 0
 /*
  * Sequence numbers are 32-bit integers operated on with modular arithmetic.
  * These macros can be used to compare sequence numbers.
