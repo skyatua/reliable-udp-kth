@@ -454,14 +454,9 @@ void rudp_process_received_packet(void *buf, rudp_socket_node *rsocket, int len)
 	switch(type)
 	{
 	case RUDP_DATA:
-
 		printf("rudp: RUDP_DATA (seq: %0x)\n", seq_num);
 		// Send RUDP_ACK		
-		//rudp_send_ack_packet(rsocket, &from, seq_num+1);		
 		rudp_send_data_ack(rsocket, &from, seq_num, rudp_data->data, len);
-		/*  recvfrom_handler_callback: rudp_receiver() <vs_recv.c>
-		 */
-		//rsocket->recvfrom_handler_callback(rsocket, &from, rudp_data->data, len);	
 		break;
 	case RUDP_ACK:
 		printf("rudp: RUDP_ACK (seq: %0x) from %s:%d\n", seq_num, inet_ntoa(from.sin_addr), ntohs(from.sin_port));
@@ -477,7 +472,6 @@ void rudp_process_received_packet(void *buf, rudp_socket_node *rsocket, int len)
 		printf("rudp: RUDP_FIN (seq: %0x)\n", seq_num);
 		rudp_fin_received = TRUE;
 		// Send RUDP_ACK
-		//rudp_send_ack_packet(rsocket, &from, seq_num+1);
 		rudp_process_fin_msg(rsocket, &from, seq_num+1);
 		break;
 	default:
@@ -628,8 +622,13 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 	    }
 	    else
 	    {
-			printf("Packet is dropped(seq_num: %0x / last_seq: %0x)\n", seq_num, recv_peer->last_seq);
+			printf("[ERROR] Packet (%d) is dropped. Last packet is (%d).\n", recv_peer->last_seq+1, recv_peer->last_seq);
 	    }
+	}
+	else
+	{
+		printf("Received from Unknown sender or None SYN.\n");
+		return -1;
 	}
 	/////////////////////////////////////////////////////////
 	// Send ACK packet for received DATA packet
@@ -649,6 +648,7 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 		return -1;
 	}
 
+	printf("[Data ACK] (seq: %d) to the Sender.\n", rudp_ack.header.seqno);
 	return 0;
 }
 /*===================================================================================
