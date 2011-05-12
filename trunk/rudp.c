@@ -107,6 +107,8 @@ void remove_send_peer(struct rudp_socket_type *rsock, struct rudp_send_peer *nod
 int retransmit(int fd, void *arg);
 int rudp_process_fin_msg(rudp_socket_node *rsocket, struct sockaddr_in *to, unsigned int seq_num);
 void remove_recv_peer(struct rudp_socket_type *rsock, struct rudp_recv_peer *node);
+
+
 /*==================================================================
  * Add RUDP socket to the node list
  *==================================================================*/
@@ -601,7 +603,7 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 	while(recv_peer)
 	{
 		if(compare_sockaddr(to, &recv_peer->rsock_addr))
-    		break;
+    			break;
     	
 		recv_peer = recv_peer->next_recv_peer;		
 	}
@@ -623,7 +625,7 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 		}
 		else
 		{
-			printf("[ERROR] Packet (%0x) is dropped. Last packet is (%0x).\n", recv_peer->last_seq+1, recv_peer->last_seq);
+			printf("[ERROR] Packet (%d) is dropped. Last packet is (%d).\n", recv_peer->last_seq+1, recv_peer->last_seq);
 		}
 	}
 	else
@@ -649,7 +651,7 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 		return -1;
 	}
 
-	printf("[Data ACK] (seq: %0x) to the Sender.\n", rudp_ack.header.seqno);
+	printf("[Data ACK] (seq: %d) to the Sender.\n", rudp_ack.header.seqno);
 	return 0;
 }
 /*===================================================================================
@@ -680,39 +682,39 @@ int rudp_send_ack_packet(rudp_socket_node *rsocket, struct sockaddr_in *to, unsi
 	// Add receiving peers to a linked list
 	socket = find_rudp_socket(rsocket);
 
-    new_recv_peer = (struct rudp_recv_peer*)malloc(sizeof(struct rudp_recv_peer));
-    if(new_recv_peer == NULL) 
-    {
+	new_recv_peer = (struct rudp_recv_peer*)malloc(sizeof(struct rudp_recv_peer));
+	if(new_recv_peer == NULL) 
+	{
 		fprintf(stderr, "rudp_send_ack_packet: Memory allocation failed.\n");		
 		return -1;
-    }
-    printf("Send ACK to %s:%d\n", inet_ntoa(to->sin_addr), seq_num);	
-    memset(new_recv_peer, 0x0, sizeof(struct rudp_recv_peer));
+	}
+	printf("Send ACK to %s:%d\n", inet_ntoa(to->sin_addr), ntohs(to->sin_port));	
+	memset(new_recv_peer, 0x0, sizeof(struct rudp_recv_peer));
 
 	new_recv_peer->status = SENDING;
-    new_recv_peer->last_seq = seq_num-1;		// Checking for packet drop
-    new_recv_peer->next_recv_peer = NULL;
-    new_recv_peer->rsock_addr = *to;
+	new_recv_peer->last_seq = seq_num-1;		// Checking for packet drop
+	new_recv_peer->next_recv_peer = NULL;
+	new_recv_peer->rsock_addr = *to;
     
-    recv_peer = socket->incoming_peer;
+	recv_peer = socket->incoming_peer;
 		
-    // Move to the end of the incoming peer list
+	// Move to the end of the incoming peer list
 	while(recv_peer != NULL)
-    {
+	{
 		prev_recv_peer = recv_peer;
 		recv_peer = recv_peer->next_recv_peer;		
 	}
     
-    if(prev_recv_peer == NULL) 
-    {
+	if(prev_recv_peer == NULL) 
+	{
 		//printf("rudp_send_ack_packet: Add one recv_peer.\n");
 		socket->incoming_peer = new_recv_peer;
-    } 
-    else 
-    {
+	} 
+	else 
+	{
 	   	//printf("rudp_send_ack_packet: Add one recv_peer at the end of the list.\n");
 		prev_recv_peer->next_recv_peer = new_recv_peer;		
-    }
+	}
 
 	return 0;
 }
@@ -739,17 +741,17 @@ int rudp_process_fin_msg(rudp_socket_node *rsocket, struct sockaddr_in *to, unsi
 		fprintf(stderr, "rudp: sendto fail(%d)\n", ret);
 		return -1;
 	}
-	printf("Send FIN ACK to %s:%0x\n", inet_ntoa(to->sin_addr), seq_num);	
+	printf("Send FIN ACK to %s:%d\n", inet_ntoa(to->sin_addr), ntohs(to->sin_port));	
 	
 	socket = find_rudp_socket(rsocket);	
 	
-	
 	recv_peer = socket->incoming_peer;
-
+	
+	// remove peer from incoming peer list
 	while(recv_peer)
 	{
 		if(compare_sockaddr(to, &recv_peer->rsock_addr))
-    		break;
+    			break;
 
 		recv_peer = recv_peer->next_recv_peer;
 	}
@@ -763,7 +765,7 @@ int rudp_process_fin_msg(rudp_socket_node *rsocket, struct sockaddr_in *to, unsi
 	{
 		remove_recv_peer(rsocket, recv_peer);
    	}
-
+	
 	return 0;
 
 }
@@ -789,7 +791,7 @@ rudp_socket_t rudp_socket(int port)
 	}
 	port_num = port;
 	printf("\n");
-    printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port_num);
+	printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port_num);
 
 	bzero(&in, sizeof(in));
 
@@ -851,8 +853,8 @@ int rudp_close(rudp_socket_t rsocket)
 	recv_peer=rsock->incoming_peer;
 	
 	while (recv_peer != NULL)
-    {	
-    	printf("rudp_close: Delete recv_peer(status=%d)\n", recv_peer->status);
+	{	
+		printf("rudp_close: Delete recv_peer(status=%d)\n", recv_peer->status);
 		prev_peer = recv_peer;
 		prev_peer->status = FINISHED;
 		prev_peer->next_recv_peer = NULL;
@@ -864,7 +866,7 @@ int rudp_close(rudp_socket_t rsocket)
 	send_peer = rsock->outgoing_peer;
 	while(send_peer != NULL)
 	{
-		send_peer->status = CLOSING;
+		send_peer->status = SENDING;
 
 		// append FIN to the send buffer
 		seqno = send_peer->seq;
@@ -872,7 +874,11 @@ int rudp_close(rudp_socket_t rsocket)
 		rudp_add_packet(&send_peer->queue_buff, packet_buff);
 		send_peer->seq = seqno+1;
 
+		// try to transmit data (if window is available)
+		transmit(send_peer, rsock->rsocket_fd);
+
 		send_peer = send_peer->next_peer;
+
 	}
 
 	return 0;
@@ -945,9 +951,6 @@ int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* 
 				// increase the sequence number
 				send_peer->seq = seqno+1;
 
-				// try to transmit data (if window is available)
-				transmit(send_peer, rsock->rsocket_fd);
-
 				// return out 
 				return 0;
 			}
@@ -972,7 +975,6 @@ int rudp_sendto(rudp_socket_t rsocket, void* data, int len, struct sockaddr_in* 
 		send_peer->seq = seqno+1;
 
 		// start transmission to the peer
-		send_peer->status = SENDING;
 		printf("rudp: Debug: Start transmission.\n");
 		transmit(send_peer, rsock->rsocket_fd);
 		return 0;
@@ -1016,7 +1018,7 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 		window = window->next_buff;
 		queue = queue->next_buff;	// shift the queue buffer pointer because the data is in window already
 	}
-
+	
 	// if less than RUDP_WINDOW and there still data in queue, copy data from queue buffer to fill in the window
 	if((wcnt < RUDP_WINDOW) && (queue != NULL))
 	{
@@ -1043,8 +1045,57 @@ int transmit(struct rudp_send_peer *send_peer, int socketfd)
 
 	for(cnt=0; cnt<RUDP_WINDOW && window != NULL; cnt++)
 	{
+		// if INITIAL, send SYN
+		if(send_peer->status == INITIAL && window->send_flag == 0)
+		{
+			seq = window->rudp_packet->header.seqno;
+			length = sizeof(window->rudp_packet->header) + window->len;
+
+			// DROP if debugging (set DROP = 0 to disable)
+			if (DROP != 0 && rand() % DROP == 1) 
+			{
+        			printf("rudp: Dropped packet to (%s:%d) via socket (%d) seq (%0x).\n", 
+							inet_ntoa(rsock_addr.sin_addr), ntohs(rsock_addr.sin_port), socket, seq); 
+    			} 
+    			else
+			{
+				if(sendto(socket, window->rudp_packet, length, 0, (struct sockaddr *)&rsock_addr, sizeof(rsock_addr)) <= 0)
+				{
+					perror("Error in send_to: ");
+					return -1;
+				}
+				printf("rudp: Packet sent to (%s:%d) via socket (%d) seq (%0x).\n", 
+							inet_ntoa(rsock_addr.sin_addr), ntohs(rsock_addr.sin_port), socket, seq);
+			}
+
+			window->send_flag = 1;	// set to status to sent
+			dumcnt++;  		// increment packet counter
+
+			// check whether the data is SYN
+			if(window->rudp_packet->header.type == RUDP_SYN)
+			{
+				// if so, set status to FINISHED
+				send_peer->status = SYN_SENT;
+				printf("rudp: SYN sent to %s:%d\n", inet_ntoa(rsock_addr.sin_addr), ntohs(rsock_addr.sin_port));
+			}
+
+			// Start the timeout callback with event_timeout
+			timer.tv_sec = RUDP_TIMEOUT/1000;           	// convert to second
+			timer.tv_usec = (RUDP_TIMEOUT%1000) * 1000; 	// convert to micro
+			gettimeofday(&t0, NULL);     			// current time of the day
+			timeradd(&t0, &timer, &t1);  //add the timeout time with thecurrent time of the day
+
+			// register timeout
+			if(event_timeout(t1, &retransmit, window->rudp_packet, "timer_callback") == -1)
+			{
+			    	perror("rudp: Error registering event_timeout\n");
+			    	return -1;
+			}
+			break;
+		}
+
 		// untransmitted window
-		if(window->send_flag == 0)
+		else if(send_peer->status == SENDING && window->send_flag == 0)
 		{
 			seq = window->rudp_packet->header.seqno;
 			length = sizeof(window->rudp_packet->header) + window->len;
@@ -1179,8 +1230,8 @@ int retransmit(int fd, void *arg)
 
 		if(event_timeout(t1, &retransmit, &packet_buff->rudp_packet, "timer_callback") == -1)
 		{
-	    	perror("rudp: Error registering event_timeout\n");
-	    	return -1;
+		    	perror("rudp: Error registering event_timeout\n");
+		    	return -1;
 		}
 
 		return 0;
