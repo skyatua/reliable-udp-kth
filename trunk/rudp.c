@@ -176,7 +176,6 @@ void rudp_add_packet(struct send_data_buffer **head, struct send_data_buffer *pa
 		current = current->next_buff;
 	}
 
-	current = (struct send_data_buffer *)malloc(sizeof(struct send_data_buffer));
 	current = packet;
 	current->send_flag = 0;
 	if(prev != NULL)
@@ -333,7 +332,6 @@ void remove_recv_peer(struct rudp_socket_type *rsock, struct rudp_recv_peer *nod
 				inet_ntoa(recv_peer->rsock_addr.sin_addr));
 		free(recv_peer);
 	}
-
 }
 /*==================================================================
  * Remove socket from open socket list
@@ -432,7 +430,7 @@ int rudp_receive_data(int fd, void *arg)
 	rsocket->rsock_addr = dest_addr;
 
 	rudp_process_received_packet((void*)&rudp_data, rsocket, bytes);
-    return 0;
+	return 0;
 }
 
 /*===================================================================
@@ -598,20 +596,20 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 	recv_peer = prev_recv_peer = NULL;
 
 	socket = find_rudp_socket(rsocket);
-    recv_peer = socket->incoming_peer;
+	recv_peer = socket->incoming_peer;
     
-    while(recv_peer)
-    {
-    	if(compare_sockaddr(to, &recv_peer->rsock_addr))
+	while(recv_peer)
+	{
+		if(compare_sockaddr(to, &recv_peer->rsock_addr))
     		break;
     	
 		recv_peer = recv_peer->next_recv_peer;		
-    }
+	}
     
 	if(recv_peer != NULL)
 	{
-	    if(seq_num == recv_peer->last_seq+1) 
-	    {
+		if(seq_num == recv_peer->last_seq+1) 
+		{
 			if(recv_peer->status != FINISHED) 
 			{
 				rsocket->recvfrom_handler_callback(rsocket, to, data, len);	
@@ -619,11 +617,19 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 			}
 			else
 				printf("Receiver socket is closed. Now packets will be dropped.\n");
+<<<<<<< .mine
+		}
+		else
+		{
+			printf("[ERROR] Packet (%d) is dropped. Last packet is (%d).\n", recv_peer->last_seq+1, recv_peer->last_seq);
+		}
+=======
 	    }
 	    else
 	    {
 			printf("[ERROR] Packet (%d) is dropped. Last packet is (%d).\n", recv_peer->last_seq+1, recv_peer->last_seq);
 	    }
+>>>>>>> .r20
 	}
 	else
 	{
@@ -679,39 +685,39 @@ int rudp_send_ack_packet(rudp_socket_node *rsocket, struct sockaddr_in *to, unsi
 	// Add receiving peers to a linked list
 	socket = find_rudp_socket(rsocket);
 
-    new_recv_peer = (struct rudp_recv_peer*)malloc(sizeof(struct rudp_recv_peer));
-    if(new_recv_peer == NULL) 
-    {
+	new_recv_peer = (struct rudp_recv_peer*)malloc(sizeof(struct rudp_recv_peer));
+	if(new_recv_peer == NULL) 
+	{
 		fprintf(stderr, "rudp_send_ack_packet: Memory allocation failed.\n");		
 		return -1;
-    }
-    printf("Send ACK to %s:%d\n", inet_ntoa(to->sin_addr), seq_num);	
-    memset(new_recv_peer, 0x0, sizeof(struct rudp_recv_peer));
+	}
+	printf("Send ACK to %s:%d\n", inet_ntoa(to->sin_addr), seq_num);	
+	memset(new_recv_peer, 0x0, sizeof(struct rudp_recv_peer));
 
 	new_recv_peer->status = SENDING;
-    new_recv_peer->last_seq = seq_num-1;		// Checking for packet drop
-    new_recv_peer->next_recv_peer = NULL;
-    new_recv_peer->rsock_addr = *to;
+	new_recv_peer->last_seq = seq_num-1;		// Checking for packet drop
+	new_recv_peer->next_recv_peer = NULL;
+	new_recv_peer->rsock_addr = *to;
     
-    recv_peer = socket->incoming_peer;
+	recv_peer = socket->incoming_peer;
 		
-    // Move to the end of the incoming peer list
-    while(recv_peer)
-    {
+	// Move to the end of the incoming peer list
+	while(recv_peer)
+	{
 		prev_recv_peer = recv_peer;
 		recv_peer = recv_peer->next_recv_peer;		
-    }
+	}
     
-    if(prev_recv_peer == NULL) 
-    {
-		printf("rudp_send_ack_packet: Add one recv_peer.\n");
+	if(prev_recv_peer == NULL) 
+	{
+		//printf("rudp_send_ack_packet: Add one recv_peer.\n");
 		socket->incoming_peer = new_recv_peer;
-    } 
-    else 
-    {
-	   	printf("rudp_send_ack_packet: Add one recv_peer at the end of the list.\n");
+	} 
+	else 
+	{
+	   	//printf("rudp_send_ack_packet: Add one recv_peer at the end of the list.\n");
 		prev_recv_peer->next_recv_peer = new_recv_peer;		
-    }
+	}
 
 	return 0;
 }
@@ -778,7 +784,7 @@ rudp_socket_t rudp_socket(int port)
 	}
 	port_num = port;
 	printf("\n");
-    printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port_num);
+	printf("rudp_socket: Socketfd: %d, Port number: %d\n", sockfd, port_num);
 
 	bzero(&in, sizeof(in));
 
@@ -840,12 +846,12 @@ int rudp_close(rudp_socket_t rsocket)
 	recv_peer=rsock->incoming_peer;
 	
 	while (recv_peer != NULL)
-    {	
-    	printf("rudp_close: Delete recv_peer(status=%d)\n", recv_peer->status);
+	{	
+		printf("rudp_close: Delete recv_peer(status=%d)\n", recv_peer->status);
 		prev_peer = recv_peer;
-		//prev_peer->status = CLOSING;
 		prev_peer->status = FINISHED;
 		prev_peer->next_recv_peer = NULL;
+		free(prev_peer);
 		recv_peer = recv_peer->next_recv_peer; 
 	}
 
@@ -1168,8 +1174,8 @@ int retransmit(int fd, void *arg)
 
 		if(event_timeout(t1, &retransmit, &packet_buff->rudp_packet, "timer_callback") == -1)
 		{
-	    	perror("rudp: Error registering event_timeout\n");
-	    	return -1;
+		    	perror("rudp: Error registering event_timeout\n");
+		    	return -1;
 		}
 
 		return 0;
