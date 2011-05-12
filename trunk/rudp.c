@@ -616,20 +616,15 @@ int rudp_send_data_ack(rudp_socket_node *rsocket, struct sockaddr_in *to, unsign
 				recv_peer->last_seq++;
 			}
 			else
+			{
 				printf("Receiver socket is closed. Now packets will be dropped.\n");
-<<<<<<< .mine
+				return -1;
+			}
 		}
 		else
 		{
 			printf("[ERROR] Packet (%d) is dropped. Last packet is (%d).\n", recv_peer->last_seq+1, recv_peer->last_seq);
 		}
-=======
-	    }
-	    else
-	    {
-			printf("[ERROR] Packet (%d) is dropped. Last packet is (%d).\n", recv_peer->last_seq+1, recv_peer->last_seq);
-	    }
->>>>>>> .r20
 	}
 	else
 	{
