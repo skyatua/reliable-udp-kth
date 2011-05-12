@@ -3,7 +3,7 @@
 
 #define RUDP_VERSION	1	/* Protocol version */
 #define RUDP_MAXPKTSIZE 1000	/* Number of data bytes that can sent in a packet, RUDP header not included */
-#define RUDP_MAXRETRANS 5	/* Max. number of retransmissions */
+#define RUDP_MAXRETRANS 500	/* Max. number of retransmissions */
 #define RUDP_TIMEOUT	2000	/* Timeout for the first retransmission in milliseconds */
 #define RUDP_WINDOW	3	/* Max. number of unacknowledged packets that can be sent to the network*/
 
@@ -16,12 +16,13 @@
 
 /* Outgoing peer status */
 #define INITIAL 1
-#define SENDING 2
-#define CLOSING 3
+#define SYN_SENT 2
+#define SENDING 3
 #define FINISHED 4
 
-/* Drop debugging purpose macro */
+/* Debugging purpose macro */
 #define DROP 0
+
 /*
  * Sequence numbers are 32-bit integers operated on with modular arithmetic.
  * These macros can be used to compare sequence numbers.
